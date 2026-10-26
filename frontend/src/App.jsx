@@ -1,5 +1,6 @@
   import {useState} from 'react';
   import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
+  const [targetInfo, setTargetInfo] = useState(null)
 
   function App() {
     const [file, setFile] = useState(null);
@@ -27,6 +28,22 @@
       setResult(data);
     }
 
+    const handleTargetChange = async (event) => {
+    const column = event.target.value
+    if (!column) {
+      setTargetInfo(null)
+      return
+    }
+
+    const response = await fetch(
+      `http://localhost:8000/target/${result.dataset_id}?column=${encodeURIComponent(column)}`
+    )
+    if (!response.ok) return
+
+    const data = await response.json()
+    setTargetInfo(data)
+  }
+
 
     return (
       <div>
@@ -40,14 +57,18 @@
             <p>Rows: {result.rows}</p>
 
             <h2>Missing Values by Column</h2>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={result.columns}>
+            {result.columns.every((col) => col.missing_count === 0) ? (
+              <p>No missing values found. Your dataset is complete.</p>
+            ) : (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={result.columns}>
                 <XAxis dataKey="name" />
                 <YAxis />
                 <Tooltip />
-                <Bar dataKey="missing_percent" fill="#8884d8" />
-              </BarChart>
-            </ResponsiveContainer>
+              <Bar dataKey="missing_percent" fill="#8884d8" />
+            </BarChart>
+          </ResponsiveContainer>
+            )}
 
             <table border="1" cellPadding="6">
               <thead>
@@ -79,6 +100,53 @@
                 ))}
               </tbody>
             </table>
+
+            <h2>Target Column</h2>
+            <select key={result.dataset_id} onChange={handleTargetChange} defaultValue="">
+              <option value="">Select a target column...</option>
+              {result.columns.map((col) => (
+                <option key={col.name} value={col.name}>{col.name}</option>
+              ))}
+            </select>
+
+            {targetInfo && (
+              <div>
+                <p>
+                  <strong>{targetInfo.column}</strong> looks like a{' '}
+                  <strong>{targetInfo.problem_type}</strong> problem
+                  ({targetInfo.unique_count} unique values).
+                </p>
+
+                {targetInfo.class_balance && (
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Class</th>
+                        <th>Count</th>
+                        <th>Percent</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {targetInfo.class_balance.map((c) => (
+                        <tr key={c.label}>
+                          <td>{c.label}</td>
+                          <td>{c.count}</td>
+                          <td>{c.percent}%</td>
+                       </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+
+                {targetInfo.class_balance &&
+                  Math.max(...targetInfo.class_balance.map((c) => c.percent)) > 70 && (
+                    <p>
+                      Warning: one class makes up most of your data, so accuracy can look
+                      high even if the model learns nothing useful.
+                    </p>
+                  )}
+              </div>
+            )}
           </div>
         )}
       </div>
