@@ -146,3 +146,35 @@ def distribution(dataset_id: str, column: str):
     ]
 
     return {"column": column, "bins": bins}
+
+@app.get("/distribution/{dataset_id}")
+def distribution(dataset_id: str, column: str):
+    df = datasets.get(dataset_id)
+    if df is None:
+        raise HTTPException(status_code=404, detail="Dataset not found. Please upload again.")
+    if column not in df.columns:
+        raise HTTPException(status_code=404, detail="Column not found.")
+
+    col_data = df[column].dropna()
+
+    is_numeric = pd.api.types.is_numeric_dtype(col_data) and not pd.api.types.is_bool_dtype(col_data)
+
+    if is_numeric:
+        counts, edges = np.histogram(col_data, bins=10)
+        bins = [
+            {"range": f"{edges[i]:.1f}-{edges[i + 1]:.1f}", "count": int(counts[i])}
+            for i in range(len(counts))
+        ]
+        return {"column": column, "kind": "numeric", "bins": bins}
+
+    value_counts = col_data.value_counts()
+    bins = [
+        {"range": str(label), "count": int(count)}
+        for label, count in value_counts.head(10).items()
+    ]
+    return {
+        "column": column,
+        "kind": "categorical",
+        "bins": bins,
+        "unique_count": int(value_counts.shape[0]),
+    }

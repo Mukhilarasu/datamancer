@@ -64,3 +64,23 @@ th {
 tr:nth-child(even) {
   background-color: #fafafa;
 }
+
+@media print {
+  body {
+    background: white;
+  }
+
+  .container {
+    box-shadow: none;
+    margin: 0;
+    max-width: none;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  table {
+    page-break-inside: avoid;
+  }
+}

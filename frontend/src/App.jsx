@@ -7,6 +7,7 @@ function App() {
   const [result, setResult] = useState(null)
   const [targetInfo, setTargetInfo] = useState(null)
   const [distInfo, setDistInfo] = useState(null)
+  const [corrInfo, setCorrInfo] = useState(null)
 
   const handleFileChange = (event) => {
     setFile(event.target.files[0])
@@ -30,6 +31,15 @@ function App() {
     setResult(data)
     setTargetInfo(null)
     setDistInfo(null)
+
+    const corrResponse = await fetch(
+      `http://localhost:8000/correlation/${data.dataset_id}`
+    )
+    if (corrResponse.ok) {
+      setCorrInfo(await corrResponse.json())
+    } else {
+      setCorrInfo(null)
+    }
   }
 
   const handleTargetChange = async (event) => {
@@ -80,16 +90,47 @@ function App() {
     }
   }
 
+  const handleDownload = () => {
+    const summary = {
+      filename: result.filename,
+      rows: result.rows,
+      warnings: result.warnings,
+      columns: result.columns,
+      target: targetInfo,
+    }
+    const blob = new Blob([JSON.stringify(summary, null, 2)], {
+      type: 'application/json',
+    })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${result.filename.replace('.csv', '')}_summary.json`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <div className="container">
       <h1>DataMancer</h1>
-      <input type="file" accept=".csv" onChange={handleFileChange} />
-      <button onClick={handleUpload}>Upload</button>
+      <input
+        className="no-print"
+        type="file"
+        accept=".csv"
+        onChange={handleFileChange}
+      />
+      <button className="no-print" onClick={handleUpload}>
+        Upload
+      </button>
 
       {result && (
         <div>
           <p>Filename: {result.filename}</p>
           <p>Rows: {result.rows}</p>
+
+          <div className="no-print">
+            <button onClick={() => window.print()}>Print / Save as PDF</button>{' '}
+            <button onClick={handleDownload}>Download summary (JSON)</button>
+          </div>
 
           {result.warnings && result.warnings.length > 0 && (
             <div>
@@ -135,7 +176,9 @@ function App() {
                 <tr key={col.name}>
                   <td>{col.name}</td>
                   <td>{col.dtype}</td>
-                  <td>{col.missing_count} ({col.missing_percent}%)</td>
+                  <td>
+                    {col.missing_count} ({col.missing_percent}%)
+                  </td>
                   <td>{col.unique_count}</td>
                   <td>{col.is_numeric ? col.mean : '—'}</td>
                   <td>{col.is_numeric ? col.median : '—'}</td>
@@ -148,31 +191,96 @@ function App() {
           </table>
 
           <h2>Column Distribution</h2>
-          <select key={'dist-' + result.dataset_id} onChange={handleDistChange} defaultValue="">
-            <option value="">Select a numeric column...</option>
-            {result.columns
-              .filter((col) => col.is_numeric)
-              .map((col) => (
-                <option key={col.name} value={col.name}>{col.name}</option>
-              ))}
+          <select
+            className="no-print"
+            key={'dist-' + result.dataset_id}
+            onChange={handleDistChange}
+            defaultValue=""
+          >
+            <option value="">Select a column...</option>
+            {result.columns.map((col) => (
+              <option key={col.name} value={col.name}>
+                {col.name}
+              </option>
+            ))}
           </select>
 
           {distInfo && (
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={distInfo.bins}>
-                <XAxis dataKey="range" />
-                <YAxis allowDecimals={false} />
-                <Tooltip />
-                <Bar dataKey="count" fill="#6c5ce7" />
-              </BarChart>
-            </ResponsiveContainer>
+            <div>
+              <p>
+                <strong>{distInfo.column}</strong>
+                {distInfo.kind === 'categorical' &&
+                  distInfo.unique_count > 10 &&
+                  ` (showing the 10 most common of ${distInfo.unique_count} values)`}
+              </p>
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={distInfo.bins}>
+                  <XAxis dataKey="range" />
+                  <YAxis allowDecimals={false} />
+                  <Tooltip />
+                  <Bar dataKey="count" fill="#6c5ce7" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {corrInfo && (
+            <div>
+              <h2>Correlation</h2>
+              <p>Closer to 1 or -1 means two columns move together more strongly.</p>
+              <div style={{ overflowX: 'auto' }}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th></th>
+                      {corrInfo.columns.map((c) => (
+                        <th key={c}>{c}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {corrInfo.columns.map((rowName, i) => (
+                      <tr key={rowName}>
+                        <th>{rowName}</th>
+                        {corrInfo.matrix[i].map((v, j) => (
+                          <td
+                            key={j}
+                            style={{
+                              backgroundColor:
+                                v === null
+                                  ? 'transparent'
+                                  : v >= 0
+                                  ? `rgba(108, 92, 231, ${Math.abs(v)})`
+                                  : `rgba(231, 76, 60, ${Math.abs(v)})`,
+                              color:
+                                v !== null && Math.abs(v) > 0.6
+                                  ? 'white'
+                                  : 'inherit',
+                            }}
+                          >
+                            {v === null ? '—' : v}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           )}
 
           <h2>Target Column</h2>
-          <select key={result.dataset_id} onChange={handleTargetChange} defaultValue="">
+          <select
+            className="no-print"
+            key={result.dataset_id}
+            onChange={handleTargetChange}
+            defaultValue=""
+          >
             <option value="">Select a target column...</option>
             {result.columns.map((col) => (
-              <option key={col.name} value={col.name}>{col.name}</option>
+              <option key={col.name} value={col.name}>
+                {col.name}
+              </option>
             ))}
           </select>
 
@@ -180,8 +288,8 @@ function App() {
             <div>
               <p>
                 <strong>{targetInfo.column}</strong> looks like a{' '}
-                <strong>{targetInfo.problem_type}</strong> problem
-                ({targetInfo.unique_count} unique values).
+                <strong>{targetInfo.problem_type}</strong> problem (
+                {targetInfo.unique_count} unique values).
               </p>
 
               {targetInfo.class_balance && (
@@ -206,10 +314,11 @@ function App() {
               )}
 
               {targetInfo.class_balance &&
-                Math.max(...targetInfo.class_balance.map((c) => c.percent)) > 70 && (
+                Math.max(...targetInfo.class_balance.map((c) => c.percent)) >
+                  70 && (
                   <p>
-                    Warning: one class makes up most of your data, so accuracy can
-                    look high even if the model learns nothing useful.
+                    Warning: one class makes up most of your data, so accuracy
+                    can look high even if the model learns nothing useful.
                   </p>
                 )}
             </div>
